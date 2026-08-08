@@ -114,6 +114,12 @@ extension Application {
         )
         var platform: [[String]] = [[]]
 
+        @Option(
+            name: .long,
+            help: "Attach the builder to a network (default|none)"
+        )
+        var network: String = NetworkClient.defaultNetworkName
+
         @Option(name: .long, help: ArgumentHelp("Progress type (format: auto|plain|tty)", valueName: "type"))
         var progress: ProgressType = .auto
 
@@ -180,17 +186,18 @@ extension Application {
                     memory: memory,
                     log: log,
                     ssh: ssh == "default",
+                    network: network,
                     dnsNameservers: dnsNameservers,
                     progressUpdate: progress.handler,
                     containerSystemConfig: containerSystemConfig,
                 )
 
-                let builder: Builder? = try await withThrowingTaskGroup(of: Builder.self) { [vsockPort, cpus, memory, dnsNameservers, ssh] group in
+                let builder: Builder? = try await withThrowingTaskGroup(of: Builder.self) { [vsockPort, cpus, memory, network, dnsNameservers, ssh] group in
                     defer {
                         group.cancelAll()
                     }
 
-                    group.addTask { [vsockPort, cpus, memory, log, dnsNameservers, ssh] in
+                    group.addTask { [vsockPort, cpus, memory, log, network, dnsNameservers, ssh] in
                         let client = ContainerClient()
                         while true {
                             do {
@@ -213,6 +220,7 @@ extension Application {
                                     memory: memory,
                                     log: log,
                                     ssh: ssh == "default",
+                                    network: network,
                                     dnsNameservers: dnsNameservers,
                                     progressUpdate: progress.handler,
                                     containerSystemConfig: containerSystemConfig,

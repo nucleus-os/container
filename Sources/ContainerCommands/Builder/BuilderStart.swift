@@ -46,6 +46,12 @@ extension Application {
         )
         var memory: String?
 
+        @Option(
+            name: .long,
+            help: "Attach the builder to a network (default|none)"
+        )
+        var network: String = NetworkClient.defaultNetworkName
+
         @OptionGroup
         public var dns: Flags.DNS
 
@@ -70,6 +76,7 @@ extension Application {
                 cpus: self.cpus,
                 memory: self.memory,
                 log: log,
+                network: self.network,
                 dnsNameservers: self.dns.nameservers,
                 dnsDomain: self.dns.domain,
                 dnsSearchDomains: self.dns.searchDomains,
@@ -85,6 +92,7 @@ extension Application {
             memory: String?,
             log: Logger,
             ssh: Bool = false,
+            network: String = NetworkClient.defaultNetworkName,
             dnsNameservers: [String] = [],
             dnsDomain: String? = nil,
             dnsSearchDomains: [String] = [],
@@ -134,12 +142,39 @@ extension Application {
             )
 
             let client = ContainerClient()
+            guard
+                network == NetworkClient.defaultNetworkName
+                    || network == NetworkClient.noNetworkName
+            else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "builder network must be default or none"
+                )
+            }
+            let networkClient = NetworkClient()
+            let targetNetworks: [AttachmentConfiguration]
+            if network == NetworkClient.noNetworkName {
+                targetNetworks = []
+            } else {
+                guard let defaultNetwork = try await networkClient.builtin else {
+                    throw ContainerizationError(.invalidState, message: "default network is not present")
+                }
+                targetNetworks = [
+                    AttachmentConfiguration(
+                        network: defaultNetwork.id,
+                        options: AttachmentOptions(hostname: Builder.builderContainerId)
+                    )
+                ]
+            }
             let existingContainer = try? await client.get(id: "buildkit")
             if let existingContainer {
                 let existingImage = existingContainer.configuration.image.reference
                 let existingResources = existingContainer.configuration.resources
                 let existingEnv = existingContainer.configuration.initProcess.environment
                 let existingDNS = existingContainer.configuration.dns
+                let networkChanged =
+                    existingContainer.configuration.networks.map(\.network)
+                    != targetNetworks.map(\.network)
 
                 let existingManagedEnv = existingEnv.filter { envVar in
                     envVar.hasPrefix("BUILDKIT_COLORS=") || envVar.hasPrefix("NO_COLOR=")
@@ -172,7 +207,7 @@ extension Application {
 
                 switch existingContainer.status {
                 case .running:
-                    guard imageChanged || cpuChanged || memChanged || envChanged || dnsChanged || sshChanged else {
+                    guard imageChanged || cpuChanged || memChanged || envChanged || dnsChanged || sshChanged || networkChanged else {
                         // If image, mem, cpu, env, and DNS are the same, continue using the existing builder
                         return
                     }
@@ -182,7 +217,7 @@ extension Application {
                 case .stopped:
                     // If the builder is stopped and matches our requirements, start it
                     // Otherwise, delete it and create a new one
-                    if imageChanged || cpuChanged || memChanged || envChanged || dnsChanged || sshChanged {
+                    if imageChanged || cpuChanged || memChanged || envChanged || dnsChanged || sshChanged || networkChanged {
                         try? await client.delete(id: existingContainer.id)
                     } else {
                         do {
@@ -280,19 +315,16 @@ extension Application {
             // Enable Rosetta only if the user didn't ask to disable it
             config.rosetta = useRosetta
 
-            let networkClient = NetworkClient()
-            guard let defaultNetwork = try await networkClient.builtin else {
-                throw ContainerizationError(.invalidState, message: "default network is not present")
-            }
-            config.networks = [
-                AttachmentConfiguration(network: defaultNetwork.id, options: AttachmentOptions(hostname: Builder.builderContainerId))
-            ]
-            config.dns = ContainerConfiguration.DNSConfiguration(
-                nameservers: dnsNameservers,
-                domain: dnsDomain,
-                searchDomains: dnsSearchDomains,
-                options: dnsOptions
-            )
+            config.networks = targetNetworks
+            config.dns =
+                network == NetworkClient.noNetworkName
+                ? nil
+                : ContainerConfiguration.DNSConfiguration(
+                    nameservers: dnsNameservers,
+                    domain: dnsDomain,
+                    searchDomains: dnsSearchDomains,
+                    options: dnsOptions
+                )
 
             let kernel = try await {
                 await progressUpdate([
