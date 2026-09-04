@@ -107,8 +107,9 @@ public struct Builder: Sendable {
             continuation.finish()
         }
 
+        let terminalTask: Task<Void, any Swift.Error>?
         if let terminal = config.terminal {
-            Task {
+            terminalTask = Task {
                 let winchHandler = AsyncSignalHandler.create(notify: [SIGWINCH])
                 let setWinch = { (rows: UInt16, cols: UInt16) in
                     var winch = ClientStream()
@@ -134,7 +135,14 @@ public struct Builder: Sendable {
                     }
                 }
             }
+        } else {
+            terminalTask = nil
         }
+
+        // The resize observer belongs to this build. Cancellation bounds its
+        // lifetime, and retaining the throwing task lets us observe failures
+        // instead of silently discarding them in an unstructured child.
+        defer { terminalTask?.cancel() }
 
         let pipeline = try await BuildPipeline(config)
         do {
@@ -154,6 +162,15 @@ public struct Builder: Sendable {
             self.grpcClient.beginGracefulShutdown()
             self.clientTask.cancel()
             try await group.shutdownGracefully()
+            if let terminalTask {
+                terminalTask.cancel()
+                do {
+                    try await terminalTask.value
+                } catch is CancellationError {
+                    // Cancellation is the normal end of the build-scoped
+                    // resize observer.
+                }
+            }
             return
         }
     }
