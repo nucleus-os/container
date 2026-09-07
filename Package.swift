@@ -62,7 +62,7 @@ let package = Package(
         // same one.
         .package(
             url: "https://github.com/nucleus-os/containerization.git",
-            revision: "7932e9e6c859413c4366d13bcba723832b0a147f"),
+            revision: "71d4b746a84b17cf7de09225c10b6b38316172ec"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.0"),
