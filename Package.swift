@@ -55,7 +55,14 @@ let package = Package(
         .library(name: "ContainerK8s", targets: ["ContainerK8s"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/containerization.git", exact: Version(stringLiteral: scVersion)),
+        // The nucleus fork of 0.43.0. Collider addresses source images by
+        // their content, which needs the ext4 formatter to stop inventing a
+        // filesystem UUID and reading its own clock, and SwiftPM resolves one
+        // identity to one URL -- so every package in the closure names the
+        // same one.
+        .package(
+            url: "https://github.com/nucleus-os/containerization.git",
+            revision: "3c65513f8f7fc997358743ef0cd1e5aa98dcb5da"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.0"),
