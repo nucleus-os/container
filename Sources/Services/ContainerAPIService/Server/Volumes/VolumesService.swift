@@ -286,6 +286,28 @@ public actor VolumesService {
         return EXT4.JournalConfig(size: size, defaultMode: mode)
     }
 
+    /// Install a prebuilt image as this volume's block file.
+    ///
+    /// Cloned rather than copied where the filesystem supports it, because the
+    /// images this exists for are tens of gigabytes and a clone shares their
+    /// storage instead of duplicating it. A filesystem that cannot clone still
+    /// gets a correct volume, more slowly.
+    private func adoptVolumeImage(for name: String, from source: String) throws {
+        let blockPath = blockPath(for: name)
+        guard FileManager.default.fileExists(atPath: source) else {
+            throw VolumeError.storageError(
+                "volume source image does not exist: \(source)")
+        }
+        try? FileManager.default.removeItem(atPath: blockPath)
+        if clonefile(source, blockPath, 0) == 0 { return }
+        do {
+            try FileManager.default.copyItem(atPath: source, toPath: blockPath)
+        } catch {
+            throw VolumeError.storageError(
+                "could not install the volume source image \(source): \(error)")
+        }
+    }
+
     private func createVolumeImage(for name: String, sizeInBytes: UInt64 = VolumeStorage.defaultVolumeSizeBytes, journal: EXT4.JournalConfig? = nil) throws {
         let blockPath = blockPath(for: name)
 
@@ -337,7 +359,16 @@ public actor VolumesService {
 
         let journalConfig = try driverOpts["journal"].map { try Self.parseJournalConfig($0) }
 
-        try createVolumeImage(for: name, sizeInBytes: sizeInBytes, journal: journalConfig)
+        // A volume is a directory holding an ext4 image, so an image built
+        // elsewhere is already the thing this would otherwise format empty.
+        // Adopting one lets a producer that addresses an image by its content
+        // hand it over intact, rather than having the content written twice --
+        // once into an artifact and again into a volume.
+        if let source = driverOpts["source"] {
+            try adoptVolumeImage(for: name, from: source)
+        } else {
+            try createVolumeImage(for: name, sizeInBytes: sizeInBytes, journal: journalConfig)
+        }
 
         let volume = VolumeConfiguration(
             name: name,
