@@ -15,7 +15,7 @@
       "kind": "remoteSourceControl",
       "location": "https://github.com/nucleus-os/containerization.git",
       "state": {
-        "revision": "3c65513f8f7fc997358743ef0cd1e5aa98dcb5da"
+        "revision": "7932e9e6c859413c4366d13bcba723832b0a147f"
       }
     },
     {
